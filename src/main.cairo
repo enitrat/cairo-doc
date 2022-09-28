@@ -34,3 +34,11 @@ func constructor{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr
     balance.write(0);
     return ();
 }
+
+namespace Namespace {
+    func under_namespace{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+        param1: felt, param2: felt
+    ) -> (res: felt) {
+        return ();
+    }
+}

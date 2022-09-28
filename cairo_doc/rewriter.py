@@ -31,47 +31,43 @@ class Rewriter(Visitor):
 
     def visit_CairoModule(self, module: CairoModule):
         top_level_elements = module.cairo_file.code_block.code_elements
-        self.get_documentation(top_level_elements)
+        self.get_elements_documentation(top_level_elements)
         self.remove_documentation(top_level_elements)
         self.add_documentation(top_level_elements)
 
         return super().visit_CairoModule(module)
 
-    def get_documentation(self, top_level_elements):
-        total_elements = len(top_level_elements)
+    def get_elements_documentation(self, code_elements: List[CommentedCodeElement]):
+        total_elements = len(code_elements)
 
-        # I don't want to revisit something already visited when inserting lines so I visit from bottom to top
+        # Don't revisit something already visited when inserting lines so visit from end to start
         for i in range(total_elements - 1, -1, -1):
-
-            func = top_level_elements[i].code_elm
-
-            # Only generate documentation for functions
-            if not isinstance(func, CodeElementFunction):
+            func = code_elements[i].code_elm
+            if skip_element(func):
                 continue
-            # struct, namespaces and storage_var are considered functions but we won't generate documentation for them.
-            need_instrumentation = any(decorator.name not in [
-                "storage_var"] for decorator in func.decorators) and func.element_type not in ['struct', 'namespace']
-            if not need_instrumentation:
+            if is_namespace(func):
+                namespace_elements = func.code_block.code_elements
+                self.get_elements_documentation(namespace_elements)
                 continue
 
-            # Store current function documentation in an array.
+            func = code_elements[i].code_elm
             current_function_doc = []
             k = i
-            while k > 0 and isinstance(top_level_elements[k - 1].code_elm, CodeElementEmptyLine):
-                comment = top_level_elements[k-1].comment
+            while k > 0 and isinstance(code_elements[k - 1].code_elm, CodeElementEmptyLine):
+                comment = code_elements[k-1].comment
                 if comment == None:
                     break
                 current_function_doc.append(comment)
                 k -= 1
 
-            # inverse because we want to write the last documentation line first
             new_documentation = create_function_documentation(
                 current_function_doc, func)
 
             self.documentation[func.name] = new_documentation
 
-    def remove_documentation(self, top_level_elements):
-        total_elements = len(top_level_elements)
+
+    def remove_documentation(self, code_elements: List[CommentedCodeElement]):
+        total_elements = len(code_elements)
 
         # I don't want to revisit something already visited when inserting lines so I visit from bottom to top
         i = -1
@@ -80,61 +76,42 @@ class Rewriter(Visitor):
             if i == total_elements:
                 break
 
-            func = top_level_elements[i].code_elm
+            func = code_elements[i].code_elm
 
-            # Only generate documentation for functions
-            if not isinstance(func, CodeElementFunction):
+            if skip_element(func):
                 continue
-            # struct, namespaces and storage_var are considered functions but we won't generate documentation for them.
-            need_instrumentation = any(decorator.name not in [
-                "storage_var"] for decorator in func.decorators) and func.element_type not in ['struct', 'namespace']
-            if not need_instrumentation:
-                continue
-
-            # Store current function documentation in an array.
-            while isinstance(top_level_elements[i - 1].code_elm, CodeElementEmptyLine):
-                comment = top_level_elements[i-1].comment
+            if is_namespace(func):
+                namespace_elements = func.code_block.code_elements
+                self.remove_documentation(namespace_elements)
+                continue;
+            # Iterate over all comments on top of the function and remove them
+            while isinstance(code_elements[i - 1].code_elm, CodeElementEmptyLine):
+                comment = code_elements[i-1].comment
                 if comment == None:
                     break
-                top_level_elements.remove(top_level_elements[i-1])
+                code_elements.remove(code_elements[i-1])
                 total_elements -= 1
                 i -= 1
 
-    def add_documentation(self, top_level_elements):
-        total_elements = len(top_level_elements)
+    def add_documentation(self, code_elements: List[CommentedCodeElement]):
+        total_elements = len(code_elements)
 
-        # I don't want to revisit something already visited when inserting lines so I visit from bottom to top
         for i in range(total_elements - 1, -1, -1):
-
-            func = top_level_elements[i].code_elm
-
-            # Only generate documentation for functions
-            if not isinstance(func, CodeElementFunction):
+            func = code_elements[i].code_elm
+            if skip_element(func):
                 continue
-            # struct, namespaces and storage_var are considered functions but we won't generate documentation for them.
-            need_instrumentation = any(decorator.name not in [
-                "storage_var"] for decorator in func.decorators) and func.element_type not in ['struct', 'namespace']
-            if not need_instrumentation:
-                continue
-
+            if is_namespace(func):
+                namespace_elements = func.code_block.code_elements
+                self.add_documentation(namespace_elements)
+                continue;
+            
             current_function_doc = self.documentation[func.name]
 
-            for j, line in enumerate(reversed(current_function_doc)):
-                # Return true if any string in documentation contains the substring line.
-                # TODO add an offset in case the documentation has been partially generated before
-                # e.g. if there is a @dev tag but no notice tag
-                # -> we want notice - dev - param - return
-
-                # TODO : Insert if the line doesn't exist, replace otherwise.
-
-                top_level_elements.insert(i, CommentedCodeElement(
+            for line in reversed(current_function_doc):
+                code_elements.insert(i, CommentedCodeElement(
                     comment=line,
                     code_elm=CodeElementEmptyLine()
                 ))
-
-
-def verify_documentation_tag(element_index: int, tag: str):
-    pass
 
 
 def create_function_documentation(current_function_doc: List[str], func: CodeElementFunction) -> List[str]:
@@ -163,7 +140,7 @@ def create_function_documentation(current_function_doc: List[str], func: CodeEle
     if func.returns != None:
         for ret in func.returns.members:
             # TODO : two types of returns, named and not named
-            current_line = f"@returns {ret.name} : {ret.typ.format()} "
+            current_line = f"@returns {ret.name} "
             existing_line = first_substring(current_function_doc, current_line)
             if existing_line:
                 tag_returns.append(existing_line)
@@ -189,3 +166,21 @@ def first_substring(strings, substring):
         if substring in s:
             return s
     return None
+
+
+def skip_element(element: CommentedCodeElement):
+  # Only generate documentation for functions
+    if not isinstance(element, CodeElementFunction):
+        return True
+    # struct  and storage_var are considered functions but we won't generate documentation for them.
+    need_instrumentation = (any(decorator.name not in [
+        "storage_var", "event"] for decorator in element.decorators) or len(element.decorators) == 0) and element.element_type not in ['struct']
+
+    return not need_instrumentation
+
+
+def is_namespace(element: CommentedCodeElement):
+    if element.element_type == 'namespace':
+        return True
+
+    return False
