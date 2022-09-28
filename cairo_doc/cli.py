@@ -28,7 +28,7 @@ def cairo_interface_generator(cairo_parser: Callable[[str, str], CairoFile], des
         newpath = os.path.join(args.directory or dirpath, newfilename)
         try:
 
-            # Generate the AST of the cairo contract, visit it and generate the interface
+            # Generate the AST of the cairo contract, insert missing documentation, visit it and write the cairo file.
             contract = CairoModule(
                 cairo_file=cairo_parser(contract_file, filename),
                 module_name=path,
@@ -42,7 +42,7 @@ def cairo_interface_generator(cairo_parser: Callable[[str, str], CairoFile], des
             print(exc, file=sys.stderr)
             return 1
 
-        print(f"Doc for {newpath}")
+        print(f"Documentation for {newpath} generated")
         open(newpath, "w").write(new_content)
 
     return 0

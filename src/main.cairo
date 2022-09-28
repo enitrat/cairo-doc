@@ -41,4 +41,11 @@ namespace Namespace {
     ) -> (res: felt) {
         return ();
     }
+
+    // @returns Uint256 fort cool
+    func no_tuple_ret{syscall_ptr: felt*, pedersen_ptr: HashBuiltin*, range_check_ptr}(
+        param1: felt
+    ) -> felt {
+        return 1;
+    }
 }
